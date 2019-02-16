@@ -1,11 +1,31 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 
+	"github.com/boltdb/bolt"
 	"github.com/go-yaml/yaml"
 )
+
+// BoltDBHandler returns an http.HandlerFunc which gets the url corresponding to paths
+// from the DB, and redirects the http request.
+func BoltDBHandler(db *bolt.DB, fallback http.Handler) (http.HandlerFunc, error) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		var bytesURL []byte
+		db.View(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("PathsToURLs"))
+			bytesURL = b.Get([]byte(path))
+			return nil
+		})
+		URL := string(bytesURL[:])
+		if len(URL) != 0 {
+			http.Redirect(w, r, URL, http.StatusFound)
+			return
+		}
+		fallback.ServeHTTP(w, r)
+	}, nil
+}
 
 // MapHandler will return an http.HandlerFunc that will map any
 // paths (keys in the map) to their corresponding URL (values
@@ -14,7 +34,6 @@ import (
 // http.Handler will be called instead.
 func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(r)
 		path := r.URL.Path
 		if dest, ok := pathsToUrls[path]; ok {
 			http.Redirect(w, r, dest, http.StatusFound)
